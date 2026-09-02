@@ -1,88 +1,75 @@
-# .github/workflows/python-app.yml
 name: Python application
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
       with:
-        python-version: "3.11"
-    
+        python-version: "3.10"
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests python-decouple pypdf pdfplumber
-    
-    - name: Debug - show project structure
+        pip install flake8 pytest coverage pytest-cov
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Download and extract Ollama manually
       run: |
-        echo "=== Current directory ==="
-        pwd
-        echo "=== Files in root ==="
-        ls -la
-        echo "=== 3_1_LLM_agent contents ==="
-        ls -la 3_1_LLM_agent/ || echo "3_1_LLM_agent not found"
-        echo "=== llm_agent contents ==="
-        ls -la 3_1_LLM_agent/llm_agent/ || echo "llm_agent not found"
-        echo "=== tests contents ==="
-        ls -la 3_1_LLM_agent/tests/ || echo "tests not found"
-    
-    - name: Check __init__.py files
+        if [ "${{ runner.arch }}" = "X64" ]; then ARCH="amd64"; else ARCH="arm64"; fi
+        curl -fsSL "https://ollama.com/download/ollama-linux-${ARCH}.tar.zst" -o ollama.tar.zst
+        mkdir -p .ollama-install
+        tar -C .ollama-install --zstd -xf ollama.tar.zst
+        rm ollama.tar.zst
+        echo "$(pwd)/.ollama-install/bin" >> $GITHUB_PATH
+
+    - name: Start Ollama Service and Pull Model
       run: |
-        echo "=== Checking __init__.py files ==="
-        if [ -f "3_1_LLM_agent/llm_agent/__init__.py" ]; then
-          echo "✅ llm_agent/__init__.py exists"
-        else
-          echo "❌ llm_agent/__init__.py missing - creating..."
-          touch 3_1_LLM_agent/llm_agent/__init__.py
-        fi
+        export OLLAMA_NUM_PARALLEL=1
+        export OLLAMA_MAX_LOADED_MODELS=1
+        ollama serve > ollama.log 2>&1 &
+        sleep 5
+        ollama pull qwen3.5:0.8b
+
+    - name: Test with coverage
+      working-directory: ./3_1_LLM_agent
+      env:
+        PYTHONPATH: .
+      run: |
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install coverage pytest pytest-cov pypdf pdfplumber requests
         
-        if [ -f "3_1_LLM_agent/tests/__init__.py" ]; then
-          echo "✅ tests/__init__.py exists"
-        else
-          echo "❌ tests/__init__.py missing - creating..."
-          touch 3_1_LLM_agent/tests/__init__.py
-        fi
-    
-    - name: Run unit tests with unittest discover
+        coverage run -m unittest discover -s tests -p "test_*.py" -v
+        coverage report -m
+        coverage json
+
+    - name: Extract coverage percent
+      working-directory: ./3_1_LLM_agent
       run: |
-        cd 3_1_LLM_agent
-        echo "Current directory: $(pwd)"
-        export PYTHONPATH="${PYTHONPATH}:${PWD}"
-        echo "PYTHONPATH: ${PYTHONPATH}"
-        python -m unittest discover -s tests -p "test_*.py" -v
-    
-    - name: Alternative - run tests directly if discover fails
-      if: failure()
-      run: |
-        cd 3_1_LLM_agent
-        echo "Running tests directly..."
-        python tests/test_agent.py
-    
-    - name: Alternative - run with Python -c if direct fails
-      if: failure()
-      run: |
-        cd 3_1_LLM_agent
-        echo "Running tests with Python -c..."
-        python -c "
-import sys
-import os
-sys.path.insert(0, os.getcwd())
-print('PYTHONPATH:', sys.path)
-from tests.test_agent import run_all_tests
-success = run_all_tests()
-exit(0 if success else 1)
-"
+        TOTAL=$(python -c "import json; print(json.load(open('coverage.json'))['totals']['percent_covered_display'])")
+        echo "total=$TOTAL" >> $GITHUB_ENV
+        echo "Coverage is ${TOTAL}%"
+
+    - name: Create Coverage Badge
+      uses: schneegans/dynamic-badges-action@v1.7.0
+      with:
+        auth: ${{ secrets.GIST_SECRET }}
+        gistID: c8dc3087e86f23873b54d5084269c7b7
+        filename: coverage.json
+        label: coverage
+        message: ${{ env.total }}%
+        valColorRange: ${{ env.total }}
+        minColorRange: 50
+        maxColorRange: 90
