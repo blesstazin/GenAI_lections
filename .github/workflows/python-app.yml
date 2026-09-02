@@ -1,35 +1,54 @@
-name: Unit Tests
+# .github/workflows/python-app.yml
+name: Python application
 
 on:
-  push:                        # запускать при каждом push
-    branches: [ main, master ]
+  push:
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest     # виртуальная машина Ubuntu
+    runs-on: ubuntu-latest
 
     steps:
-      # 1. Скачать код из репозитория
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # 2. Установить Python
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      # 3. Установить зависимости
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pypdf pdfplumber requests
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-
-      # 4. Запустить тесты (это и есть твоя команда)
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Устанавливаем зависимости для вашего проекта
+        pip install requests python-decouple pypdf pdfplumber
+        # Если есть requirements.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Debug - check structure
+      run: |
+        echo "=== Current directory ==="
+        pwd
+        echo "=== Files in root ==="
+        ls -la
+        echo "=== llm_agent directory ==="
+        ls -la llm_agent/ || echo "llm_agent not found"
+        echo "=== tests directory ==="
+        ls -la tests/ || echo "tests not found"
+    
+    - name: Run tests with unittest
+      run: |
+        # Добавляем текущую директорию в PYTHONPATH
+        export PYTHONPATH="${PYTHONPATH}:${PWD}"
+        python -m unittest discover -s tests -p "test_*.py" -v
+    
+    - name: Alternative - run tests directly
+      if: failure()
+      run: |
+        # Если unittest discover не работает, запускаем напрямую
+        python tests/test_agent.py
