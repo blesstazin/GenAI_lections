@@ -25,30 +25,64 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Устанавливаем зависимости для вашего проекта
         pip install requests python-decouple pypdf pdfplumber
-        # Если есть requirements.txt
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     
-    - name: Debug - check structure
+    - name: Debug - show project structure
       run: |
         echo "=== Current directory ==="
         pwd
         echo "=== Files in root ==="
         ls -la
-        echo "=== llm_agent directory ==="
-        ls -la llm_agent/ || echo "llm_agent not found"
-        echo "=== tests directory ==="
-        ls -la tests/ || echo "tests not found"
+        echo "=== 3_1_LLM_agent contents ==="
+        ls -la 3_1_LLM_agent/ || echo "3_1_LLM_agent not found"
+        echo "=== llm_agent contents ==="
+        ls -la 3_1_LLM_agent/llm_agent/ || echo "llm_agent not found"
+        echo "=== tests contents ==="
+        ls -la 3_1_LLM_agent/tests/ || echo "tests not found"
     
-    - name: Run tests with unittest
+    - name: Check __init__.py files
       run: |
-        # Добавляем текущую директорию в PYTHONPATH
+        echo "=== Checking __init__.py files ==="
+        if [ -f "3_1_LLM_agent/llm_agent/__init__.py" ]; then
+          echo "✅ llm_agent/__init__.py exists"
+        else
+          echo "❌ llm_agent/__init__.py missing - creating..."
+          touch 3_1_LLM_agent/llm_agent/__init__.py
+        fi
+        
+        if [ -f "3_1_LLM_agent/tests/__init__.py" ]; then
+          echo "✅ tests/__init__.py exists"
+        else
+          echo "❌ tests/__init__.py missing - creating..."
+          touch 3_1_LLM_agent/tests/__init__.py
+        fi
+    
+    - name: Run unit tests with unittest discover
+      run: |
+        cd 3_1_LLM_agent
+        echo "Current directory: $(pwd)"
         export PYTHONPATH="${PYTHONPATH}:${PWD}"
+        echo "PYTHONPATH: ${PYTHONPATH}"
         python -m unittest discover -s tests -p "test_*.py" -v
     
-    - name: Alternative - run tests directly
+    - name: Alternative - run tests directly if discover fails
       if: failure()
       run: |
-        # Если unittest discover не работает, запускаем напрямую
+        cd 3_1_LLM_agent
+        echo "Running tests directly..."
         python tests/test_agent.py
+    
+    - name: Alternative - run with Python -c if direct fails
+      if: failure()
+      run: |
+        cd 3_1_LLM_agent
+        echo "Running tests with Python -c..."
+        python -c "
+import sys
+import os
+sys.path.insert(0, os.getcwd())
+print('PYTHONPATH:', sys.path)
+from tests.test_agent import run_all_tests
+success = run_all_tests()
+exit(0 if success else 1)
+"
